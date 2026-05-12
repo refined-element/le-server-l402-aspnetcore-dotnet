@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>L402Server.AspNetCore</RootNamespace>
+    <AssemblyName>L402Server.AspNetCore</AssemblyName>
+
+    <!-- NuGet Package Metadata -->
+    <PackageId>L402Server.AspNetCore</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>Refined Element</Authors>
+    <Company>Refined Element</Company>
+    <Description>ASP.NET Core middleware for L402 — drop one line into any ASP.NET API to charge per-request Lightning payments. Built on top of L402Server.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://docs.lightningenable.com/products/l402-microtransactions/native-integration</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/refined-element/le-server-l402-aspnetcore-dotnet</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>lightning;l402;bitcoin;aspnetcore;middleware;payments;macaroon;agent;ai;monetization</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="L402Server.AspNetCore.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="L402Server" Version="0.1.0" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+</Project>

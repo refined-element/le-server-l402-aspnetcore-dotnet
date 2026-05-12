@@ -1,0 +1,12 @@
+bin/
+obj/
+[Bb]in/
+[Oo]bj/
+*.user
+*.suo
+.vs/
+.vscode/
+.idea/
+TestResults/
+*.lock.json
+*.binlog

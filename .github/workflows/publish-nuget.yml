@@ -1,0 +1,60 @@
+name: Publish to NuGet
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/L402Server.AspNetCore/L402Server.AspNetCore.csproj'
+
+jobs:
+  build-test-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test --configuration Release --no-build --verbosity normal
+
+      - name: Extract version
+        id: version
+        run: |
+          VERSION=$(grep -oP '<Version>\K[^<]+' src/L402Server.AspNetCore/L402Server.AspNetCore.csproj)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Check if version exists on NuGet
+        id: check
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://api.nuget.org/v3-flatcontainer/l402server.aspnetcore/${{ steps.version.outputs.version }}/l402server.aspnetcore.nuspec")
+          if [ "$STATUS" = "200" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Pack
+        if: steps.check.outputs.exists == 'false'
+        run: dotnet pack src/L402Server.AspNetCore/L402Server.AspNetCore.csproj --configuration Release --no-build --output ./nupkg
+
+      - name: Push to NuGet
+        if: steps.check.outputs.exists == 'false'
+        run: dotnet nuget push ./nupkg/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+      - name: Summary
+        run: |
+          echo "## L402Server.AspNetCore v${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.check.outputs.exists }}" = "true" ]; then
+            echo "Version already on NuGet — skipped publish." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- Published: https://www.nuget.org/packages/L402Server.AspNetCore/${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          fi
