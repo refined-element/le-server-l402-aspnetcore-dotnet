@@ -18,11 +18,13 @@ public static class L402HttpContextKeys
 /// ASP.NET Core middleware that gates requests behind L402 Lightning payments.
 /// <para>
 /// Per-request behavior:
-/// 1. Resolve a price for the current request — first from an
-///    <see cref="L402Attribute"/> on the matched endpoint, then from
-///    <see cref="L402AspNetCoreOptions.PriceSelector"/>, then from
-///    <see cref="L402AspNetCoreOptions.DefaultPriceSats"/>. If none → pass
-///    through (the request is not gated by this middleware).
+/// 1. Resolve a price for the current request. Resolution order:
+///    <see cref="L402AspNetCoreOptions.PriceSelector"/> first — if it returns
+///    a non-null value, that's the price. If it returns <see langword="null"/>
+///    (or is not configured), fall through to any <see cref="L402Attribute"/>
+///    on the matched endpoint. If neither yields a price, fall through to
+///    <see cref="L402AspNetCoreOptions.DefaultPriceSats"/>. If all three are
+///    null/missing, the request passes through ungated.
 /// 2. Parse <c>Authorization: L402 macaroon:preimage</c> from the request.
 /// 3. If absent/malformed → mint a fresh challenge via <see cref="L402ServerClient"/>
 ///    and respond with <c>402 Payment Required</c>.
@@ -119,7 +121,12 @@ public sealed class L402Middleware
     {
         if (_options.PriceSelector is not null)
         {
-            return await _options.PriceSelector(context);
+            var selectorPrice = await _options.PriceSelector(context);
+            if (selectorPrice is not null)
+            {
+                return selectorPrice;
+            }
+            // null = "I have no opinion on this request" → fall through to attribute / default.
         }
         if (attribute is not null)
         {

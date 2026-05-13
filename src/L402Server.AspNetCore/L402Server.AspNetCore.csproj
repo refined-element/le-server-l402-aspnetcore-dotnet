@@ -9,7 +9,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>L402Server.AspNetCore</PackageId>
-    <Version>0.1.1</Version>
+    <Version>0.1.2</Version>
     <Authors>Refined Element</Authors>
     <Company>Refined Element</Company>
     <Description>ASP.NET Core middleware for L402 — drop one line into any ASP.NET API to charge per-request Lightning payments. Built on top of L402Server.</Description>

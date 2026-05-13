@@ -16,12 +16,15 @@ public sealed class L402AspNetCoreOptions
     public int? DefaultPriceSats { get; set; }
 
     /// <summary>
-    /// Optional function-form price selector. When set, overrides
-    /// <see cref="DefaultPriceSats"/> and any attribute value — useful for
-    /// pricing that varies per request (e.g., "premium model costs more").
-    /// Must resolve to an integer ≥ 1.
+    /// Optional function-form price selector. When set, runs first — if it
+    /// returns a non-null value, that's the price. If it returns
+    /// <see langword="null"/>, resolution falls through to any
+    /// <see cref="L402Attribute"/> on the endpoint, and finally to
+    /// <see cref="DefaultPriceSats"/>. Useful for "premium model costs more"
+    /// patterns or for selectively gating only certain paths while leaving
+    /// others ungated. Must resolve to an integer ≥ 1 when non-null.
     /// </summary>
-    public Func<HttpContext, ValueTask<int>>? PriceSelector { get; set; }
+    public Func<HttpContext, ValueTask<int?>>? PriceSelector { get; set; }
 
     /// <summary>
     /// Optional resource selector. Defaults to <c>HttpContext.Request.Path</c>
