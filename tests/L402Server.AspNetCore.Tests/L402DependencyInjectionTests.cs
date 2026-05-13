@@ -48,9 +48,21 @@ public class L402DependencyInjectionTests
     {
         // The end-to-end harness that the original 0.1.1 bug actually broke.
         // Build a minimal WebApplication and ensure neither AddL402AspNetCore
-        // nor UseL402 throws during composition.
-        var builder = WebApplication.CreateBuilder();
-        builder.Environment.EnvironmentName = "Development"; // turns on ValidateOnBuild
+        // nor UseL402 throws during composition. We pin EnvironmentName via
+        // WebApplicationOptions (set during builder creation, not after — that's
+        // the only correct place for env-driven defaults like ValidateOnBuild to
+        // be picked up) AND explicitly enable validation via UseDefaultServiceProvider
+        // so the test never depends on environment-driven defaults to fire.
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+        {
+            EnvironmentName = Environments.Development,
+        });
+
+        builder.Host.UseDefaultServiceProvider(opts =>
+        {
+            opts.ValidateOnBuild = true;
+            opts.ValidateScopes = true;
+        });
 
         builder.Services.AddL402AspNetCore(opts => opts.ApiKey = "fixture-apikey-not-real");
 
