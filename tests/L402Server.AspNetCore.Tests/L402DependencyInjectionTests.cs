@@ -32,11 +32,16 @@ public class L402DependencyInjectionTests
         services.AddLogging();
         services.AddL402AspNetCore(opts => opts.ApiKey = "fixture-apikey-not-real");
 
-        var act = () => services.BuildServiceProvider(new ServiceProviderOptions
+        var act = () =>
         {
-            ValidateOnBuild = true,
-            ValidateScopes = true,
-        });
+            // Dispose inside the lambda so the test never leaks handlers/timers
+            // across the suite. The assertion only cares that Build doesn't throw.
+            using var sp = services.BuildServiceProvider(new ServiceProviderOptions
+            {
+                ValidateOnBuild = true,
+                ValidateScopes = true,
+            });
+        };
 
         act.Should().NotThrow(
             because: "L402Middleware is convention-based and must not be in DI — " +
@@ -68,7 +73,10 @@ public class L402DependencyInjectionTests
 
         var act = () =>
         {
-            var app = builder.Build();
+            // `using` ensures the built WebApplication/IHost (with any timers,
+            // HttpClient handlers, etc.) is disposed before the test returns,
+            // so this regression check doesn't leak resources across the suite.
+            using var app = builder.Build();
             app.UseRouting();
             app.UseL402();
         };
