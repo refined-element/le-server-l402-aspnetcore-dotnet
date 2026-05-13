@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace L402Server.AspNetCore;
 
@@ -63,7 +62,11 @@ public static class L402ApplicationBuilderExtensions
         ArgumentNullException.ThrowIfNull(configureServer);
 
         services.AddL402Server(configureServer);
-        services.TryAddTransient<L402Middleware>();
+        // L402Middleware is convention-based (ctor takes RequestDelegate) — it
+        // must NOT be in DI. UseMiddleware<L402Middleware>() instantiates it
+        // via ActivatorUtilities and supplies RequestDelegate from the pipeline,
+        // pulling the other ctor args (L402AspNetCoreOptions, L402ServerClient,
+        // ILogger) from DI. Registering it as transient breaks ValidateOnBuild.
         return services;
     }
 }

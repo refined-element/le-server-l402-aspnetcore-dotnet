@@ -150,7 +150,7 @@ public class L402MiddlewareTests
                     capturedBody = await req.Content.ReadAsStringAsync();
                 return StubHttpHandler.Json(HttpStatusCode.OK, SampleChallengeJson);
             },
-            opts => opts.PriceSelector = _ => ValueTask.FromResult(500));
+            opts => opts.PriceSelector = _ => ValueTask.FromResult<int?>(500));
         using var _ = host;
         using var client = host.GetTestClient();
 
@@ -159,6 +159,50 @@ public class L402MiddlewareTests
         capturedBody.Should().Contain("\"priceSats\":500",
             "PriceSelector should override the attribute's 100");
         handler.CallCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task PriceSelectorReturningNull_FallsThroughToAttribute()
+    {
+        // When PriceSelector returns null it should be treated as "no opinion"
+        // and resolution should fall through to the [L402] attribute price.
+        string? capturedBody = null;
+        var (host, handler) = await BuildHostAsync(
+            endpoints => endpoints.MapGet("/x", () => "secret")
+                .WithMetadata(new L402Attribute { PriceSats = 100 }),
+            async req =>
+            {
+                if (req.Content != null)
+                    capturedBody = await req.Content.ReadAsStringAsync();
+                return StubHttpHandler.Json(HttpStatusCode.OK, SampleChallengeJson);
+            },
+            opts => opts.PriceSelector = _ => ValueTask.FromResult<int?>(null));
+        using var _ = host;
+        using var client = host.GetTestClient();
+
+        await client.GetAsync("/x");
+
+        capturedBody.Should().Contain("\"priceSats\":100",
+            "PriceSelector returning null should fall through to the [L402] attribute's 100");
+        handler.CallCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task PriceSelectorReturningNull_NoAttribute_NoDefault_PassesThrough()
+    {
+        // When everything resolves to null/missing, the request must pass through
+        // ungated (no 402, no upstream call to challenge API).
+        var (host, handler) = await BuildHostAsync(
+            endpoints => endpoints.MapGet("/free", () => "ok"),
+            _ => Task.FromResult(StubHttpHandler.Json(HttpStatusCode.OK, SampleChallengeJson)),
+            opts => opts.PriceSelector = _ => ValueTask.FromResult<int?>(null));
+        using var _ = host;
+        using var client = host.GetTestClient();
+
+        var response = await client.GetAsync("/free");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        handler.CallCount.Should().Be(0, "no upstream challenge should be issued for ungated routes");
     }
 
     [Fact]

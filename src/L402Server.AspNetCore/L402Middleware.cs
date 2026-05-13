@@ -119,7 +119,12 @@ public sealed class L402Middleware
     {
         if (_options.PriceSelector is not null)
         {
-            return await _options.PriceSelector(context);
+            var selectorPrice = await _options.PriceSelector(context);
+            if (selectorPrice is not null)
+            {
+                return selectorPrice;
+            }
+            // null = "I have no opinion on this request" → fall through to attribute / default.
         }
         if (attribute is not null)
         {
