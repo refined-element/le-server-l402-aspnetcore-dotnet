@@ -1,5 +1,8 @@
 # L402Server.AspNetCore
 
+[![Discord](https://img.shields.io/discord/1405389254892195951?label=community&logo=discord&color=5865F2)](https://discord.gg/rX7NxHY8vx)
+
+
 [![NuGet](https://img.shields.io/nuget/v/L402Server.AspNetCore.svg)](https://www.nuget.org/packages/L402Server.AspNetCore)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
