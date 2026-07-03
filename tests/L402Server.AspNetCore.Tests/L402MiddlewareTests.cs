@@ -324,6 +324,130 @@ public class L402MiddlewareTests
         body.Should().Be("custom:Invalid preimage");
     }
 
+    // ---------- Server-side path-caveat enforcement on verify ----------
+
+    [Fact]
+    public async Task VerifySendsRequestPathAsResource_ByDefault()
+    {
+        string? capturedBody = null;
+        var (host, _) = await BuildHostAsync(
+            endpoints => endpoints.MapGet("/api/premium", () => "secret")
+                .WithMetadata(new L402Attribute { PriceSats = 100 }),
+            async req =>
+            {
+                if (req.Content != null)
+                    capturedBody = await req.Content.ReadAsStringAsync();
+                return StubHttpHandler.Json(HttpStatusCode.OK, ValidVerifyJson);
+            });
+        using var _h = host;
+        using var client = host.GetTestClient();
+
+        var req = new HttpRequestMessage(HttpMethod.Get, "/api/premium");
+        req.Headers.TryAddWithoutValidation("Authorization", $"L402 {Mac}:deadbeef");
+        await client.SendAsync(req);
+
+        capturedBody.Should().Contain("\"resource\":\"/api/premium\"",
+            "verify should pass the request path so the producer API enforces the path caveat");
+    }
+
+    [Fact]
+    public async Task VerifyUsesAttributeResource_MatchingMintPrecedence()
+    {
+        string? capturedBody = null;
+        var (host, _) = await BuildHostAsync(
+            endpoints => endpoints.MapGet("/api/weather/forecast", () => "data")
+                .WithMetadata(new L402Attribute
+                {
+                    PriceSats = 100,
+                    Resource = "/canonical/weather",
+                }),
+            async req =>
+            {
+                if (req.Content != null)
+                    capturedBody = await req.Content.ReadAsStringAsync();
+                return StubHttpHandler.Json(HttpStatusCode.OK, ValidVerifyJson);
+            });
+        using var _h = host;
+        using var client = host.GetTestClient();
+
+        var req = new HttpRequestMessage(HttpMethod.Get, "/api/weather/forecast");
+        req.Headers.TryAddWithoutValidation("Authorization", $"L402 {Mac}:deadbeef");
+        await client.SendAsync(req);
+
+        capturedBody.Should().Contain("\"resource\":\"/canonical/weather\"",
+            "verify must resolve the resource with the same precedence as minting, or tokens the middleware issued would fail enforcement");
+    }
+
+    [Fact]
+    public async Task VerifyUsesResourceSelector_MatchingMintPrecedence()
+    {
+        string? capturedBody = null;
+        var (host, _) = await BuildHostAsync(
+            endpoints => endpoints.MapGet("/api/premium", () => "secret")
+                .WithMetadata(new L402Attribute { PriceSats = 100 }),
+            async req =>
+            {
+                if (req.Content != null)
+                    capturedBody = await req.Content.ReadAsStringAsync();
+                return StubHttpHandler.Json(HttpStatusCode.OK, ValidVerifyJson);
+            },
+            opts => opts.ResourceSelector = ctx => $"/selected{ctx.Request.Path}");
+        using var _h = host;
+        using var client = host.GetTestClient();
+
+        var req = new HttpRequestMessage(HttpMethod.Get, "/api/premium");
+        req.Headers.TryAddWithoutValidation("Authorization", $"L402 {Mac}:deadbeef");
+        await client.SendAsync(req);
+
+        capturedBody.Should().Contain("\"resource\":\"/selected/api/premium\"");
+    }
+
+    [Fact]
+    public async Task VerifyOmitsResource_WhenEnforceResourceOnVerifyDisabled()
+    {
+        string? capturedBody = null;
+        var (host, _) = await BuildHostAsync(
+            endpoints => endpoints.MapGet("/api/premium", () => "secret")
+                .WithMetadata(new L402Attribute { PriceSats = 100 }),
+            async req =>
+            {
+                if (req.Content != null)
+                    capturedBody = await req.Content.ReadAsStringAsync();
+                return StubHttpHandler.Json(HttpStatusCode.OK, ValidVerifyJson);
+            },
+            opts => opts.EnforceResourceOnVerify = false);
+        using var _h = host;
+        using var client = host.GetTestClient();
+
+        var req = new HttpRequestMessage(HttpMethod.Get, "/api/premium");
+        req.Headers.TryAddWithoutValidation("Authorization", $"L402 {Mac}:deadbeef");
+        await client.SendAsync(req);
+
+        capturedBody.Should().NotContain("\"resource\"",
+            "opting out must omit the field entirely so the producer API skips path-caveat enforcement");
+    }
+
+    [Fact]
+    public async Task Returns401_WhenProducerRejectsTokenBoundToDifferentPath()
+    {
+        var (host, _) = await BuildHostAsync(
+            endpoints => endpoints.MapGet("/not-what-was-paid-for", () => "secret")
+                .WithMetadata(new L402Attribute { PriceSats = 100 }),
+            _ => Task.FromResult(StubHttpHandler.Json(
+                HttpStatusCode.OK,
+                """{"valid":false,"error":"Token bound to a different resource"}""")));
+        using var _h = host;
+        using var client = host.GetTestClient();
+
+        var req = new HttpRequestMessage(HttpMethod.Get, "/not-what-was-paid-for");
+        req.Headers.TryAddWithoutValidation("Authorization", $"L402 {Mac}:deadbeef");
+        var response = await client.SendAsync(req);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().Contain("Token bound to a different resource");
+    }
+
     // ---------- Upstream errors ----------
 
     [Fact]

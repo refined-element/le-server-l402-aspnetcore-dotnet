@@ -85,6 +85,49 @@ app.UseL402(opts =>
 
 Resolution order: `PriceSelector` > `[L402(PriceSats)]` attribute > `DefaultPriceSats`. If none → request passes through ungated.
 
+## The `[L402]` attribute
+
+The attribute carries three properties:
+
+```csharp
+[HttpGet("forecast")]
+[L402(PriceSats = 100,                       // required, ≥ 1 (compile-time constant)
+      Description = "Premium forecast",     // optional, shown in the payer's wallet
+      Resource = "/canonical/forecast")]    // optional, overrides the macaroon-bound resource
+public IActionResult Forecast() => Ok(...);
+```
+
+- **`PriceSats`** (required): price in satoshis. Attribute values are compile-time constants; for variable per-request pricing use `PriceSelector` on the middleware options.
+- **`Description`** (optional): embedded in the Lightning invoice.
+- **`Resource`** (optional): overrides the resource bound into the macaroon's path caveat. Defaults to the request path. Useful when several routes should share one canonical paid resource (e.g. normalizing route parameters out), since a token is only valid for the exact resource it was minted for.
+
+The attribute can also be applied **class-level** to gate every action on a controller with one declaration. If both the controller and an action carry `[L402]`, the action-level attribute wins for that endpoint (endpoint metadata is ordered least- to most-specific and the middleware reads the most specific match) — so a class-level default can be repriced per action:
+
+```csharp
+[ApiController]
+[Route("api/premium")]
+[L402(PriceSats = 100)]   // every action below costs 100 sats
+public class PremiumController : ControllerBase
+{
+    [HttpGet("weather")]
+    public IActionResult Weather() => Ok(new { temp = 72 });
+
+    [HttpGet("forecast")]
+    public IActionResult Forecast() => Ok(new { rain = false });
+}
+```
+
+## Server-side path-caveat enforcement
+
+Each macaroon is bound to the resource it was minted for. By default the middleware sends the resolved resource (same precedence as minting: `[L402(Resource = ...)]` > `ResourceSelector` > request path) with every verification call, so Lightning Enable rejects a token that was paid for a *different* path — replay protection across endpoints without writing a comparison yourself.
+
+```csharp
+// To opt out (and do your own comparison against VerificationResult.Resource):
+app.UseL402(opts => opts.EnforceResourceOnVerify = false);
+```
+
+Requires `L402Server` ≥ 0.2.0 (a transitive dependency of this package).
+
 ## Verified credential on downstream handlers
 
 ```csharp
@@ -107,7 +150,8 @@ public IActionResult Weather(HttpContext ctx)
 | `ResourceSelector` | `Func<HttpContext, string>?` | `HttpContext.Request.Path` | Bound as a macaroon caveat |
 | `DescriptionSelector` | `Func<HttpContext, string?>?` | `null` | Shown to the payer in their wallet |
 | `IdempotencyKeySelector` | `Func<HttpContext, string?>?` | `null` | Sends `X-Idempotency-Key` for retry-safe challenge minting |
-| `OnInvalidToken` | `Func<HttpContext, VerificationResult, ValueTask>?` | sends `401` | Custom handler — e.g. send a fresh `402` instead |
+| `EnforceResourceOnVerify` | `bool` | `true` | Sends the resolved resource with verification so the producer API enforces the macaroon's path caveat server-side; set `false` to opt out |
+| `OnInvalidToken` | `Func<HttpContext, VerificationResult, ValueTask>?` | sends `401` | Custom handler — e.g. send a fresh `402` instead. Your handler must write a response or call the next middleware itself |
 
 ## Two integration modes
 

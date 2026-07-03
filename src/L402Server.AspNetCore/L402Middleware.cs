@@ -90,10 +90,18 @@ public sealed class L402Middleware
         VerificationResult verification;
         try
         {
+            // Unless disabled, pass the resolved resource so the producer API
+            // enforces the macaroon's path caveat server-side. Same resolution
+            // precedence as challenge minting, so a token this middleware
+            // issued for this endpoint always verifies cleanly.
+            var verifyResource = _options.EnforceResourceOnVerify
+                ? ResolveResource(context, attribute)
+                : null;
             verification = await _client.VerifyTokenAsync(new VerifyTokenRequest
             {
                 Macaroon = parsed.Value.Macaroon,
                 Preimage = parsed.Value.Preimage,
+                Resource = verifyResource,
             }, context.RequestAborted);
         }
         catch (Exception ex)
@@ -135,21 +143,30 @@ public sealed class L402Middleware
         return _options.DefaultPriceSats;
     }
 
-    private async Task IssueChallengeAsync(HttpContext context, int priceSats, L402Attribute? attribute)
+    /// <summary>
+    /// Resolves the resource for the current request. Precedence:
+    /// <see cref="L402Attribute.Resource"/> on the matched endpoint, then
+    /// <see cref="L402AspNetCoreOptions.ResourceSelector"/>, then the raw
+    /// request path. Used both when minting challenges (bound into the
+    /// macaroon's path caveat) and, by default, when verifying tokens
+    /// (enforced server-side against that caveat).
+    /// </summary>
+    private string ResolveResource(HttpContext context, L402Attribute? attribute)
     {
-        string resource;
         if (attribute?.Resource is { Length: > 0 } attrResource)
         {
-            resource = attrResource;
+            return attrResource;
         }
-        else if (_options.ResourceSelector is not null)
+        if (_options.ResourceSelector is not null)
         {
-            resource = _options.ResourceSelector(context);
+            return _options.ResourceSelector(context);
         }
-        else
-        {
-            resource = context.Request.Path.HasValue ? context.Request.Path.Value! : "/";
-        }
+        return context.Request.Path.HasValue ? context.Request.Path.Value! : "/";
+    }
+
+    private async Task IssueChallengeAsync(HttpContext context, int priceSats, L402Attribute? attribute)
+    {
+        var resource = ResolveResource(context, attribute);
 
         var description = attribute?.Description
             ?? (_options.DescriptionSelector is not null ? _options.DescriptionSelector(context) : null);
