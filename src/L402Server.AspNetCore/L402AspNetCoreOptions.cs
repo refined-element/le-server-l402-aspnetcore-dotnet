@@ -47,6 +47,21 @@ public sealed class L402AspNetCoreOptions
     public Func<HttpContext, string?>? IdempotencyKeySelector { get; set; }
 
     /// <summary>
+    /// When <see langword="true"/> (the default), the middleware sends the
+    /// resolved resource with every token verification so the Lightning
+    /// Enable producer API enforces the macaroon's <c>path</c> caveat
+    /// server-side — a token minted for a different path verifies as
+    /// invalid (401). The resource is resolved with the same precedence
+    /// used at challenge minting (<see cref="L402Attribute.Resource"/>,
+    /// then <see cref="ResourceSelector"/>, then
+    /// <c>HttpContext.Request.Path</c>), so tokens the middleware itself
+    /// issued always verify cleanly. Set to <see langword="false"/> to
+    /// skip enforcement and compare the caveat yourself via
+    /// <see cref="VerificationResult.Resource"/>.
+    /// </summary>
+    public bool EnforceResourceOnVerify { get; set; } = true;
+
+    /// <summary>
     /// Optional custom handler for failed verification. Defaults to sending
     /// a 401 JSON response. If supplied, the handler is responsible for
     /// either writing a response or calling the next middleware itself.
