@@ -41,8 +41,16 @@ public sealed class L402AspNetCoreOptions
 
     /// <summary>
     /// Optional idempotency key derivation. If set, the value is sent as
-    /// <c>X-Idempotency-Key</c> on challenge creation so retries within the
-    /// invoice expiry return the same challenge.
+    /// <c>X-Idempotency-Key</c> on challenge creation so a repeated key
+    /// returns the same challenge while its invoice is live.
+    /// <para>
+    /// Set it so each buyer gets their own invoice. If null, the producer API
+    /// deduplicates by the CALLER's IP address plus resource and price.
+    /// Behind this middleware the caller is your server, not the buyer, so
+    /// every buyer of the same resource at the same price receives the same
+    /// invoice until it expires, and only one of them can pay it. Example:
+    /// <c>opts.IdempotencyKeySelector = _ =&gt; Guid.NewGuid().ToString("N");</c>
+    /// </para>
     /// </summary>
     public Func<HttpContext, string?>? IdempotencyKeySelector { get; set; }
 
