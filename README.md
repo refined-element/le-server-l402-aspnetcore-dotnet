@@ -8,6 +8,8 @@
 
 **ASP.NET Core middleware for L402.** Drop one line into any ASP.NET API to charge per-request Lightning payments. Built on [`L402Server`](https://www.nuget.org/packages/L402Server) — Lightning Enable handles invoices, macaroons, and payment verification; your API stays where it is.
 
+Requires a Lightning Enable account on a plan that includes L402 (the Free Producer Sandbox works within its caps); see https://www.lightningenable.com for plans. Lightning Enable does not hold funds; the payment provider facilitates custody and settlement.
+
 ## Install
 
 ```bash
@@ -78,12 +80,12 @@ app.UseL402(opts => opts.DefaultPriceSats = 100);
 ```csharp
 app.UseL402(opts =>
 {
-    opts.PriceSelector = ctx => ValueTask.FromResult(
+    opts.PriceSelector = ctx => ValueTask.FromResult<int?>(
         ctx.Request.Query["model"] == "premium" ? 500 : 100);
 });
 ```
 
-Resolution order: `PriceSelector` > `[L402(PriceSats)]` attribute > `DefaultPriceSats`. If none → request passes through ungated.
+Resolution order: `PriceSelector` > `[L402(PriceSats)]` attribute > `DefaultPriceSats`. A `PriceSelector` that returns `null` falls through to the attribute, then the default. If none → request passes through ungated.
 
 ## The `[L402]` attribute
 
@@ -128,28 +130,53 @@ app.UseL402(opts => opts.EnforceResourceOnVerify = false);
 
 Requires `L402Server` ≥ 0.2.0 (a transitive dependency of this package).
 
+This is the default from 0.2.0. In 0.1.x the middleware sent no resource with verification, so a token was accepted on its macaroon and preimage alone, whatever path it was minted for, unless you compared `VerificationResult.Resource` yourself.
+
 ## Verified credential on downstream handlers
+
+In a controller, read the credential through the `HttpContext` property that `ControllerBase` exposes. MVC doesn't bind `HttpContext` as an action parameter, so a `Weather(HttpContext ctx)` signature isn't populated.
 
 ```csharp
 [HttpGet("weather"), L402(PriceSats = 100)]
-public IActionResult Weather(HttpContext ctx)
+public IActionResult Weather()
 {
-    var result = (VerificationResult)ctx.Items[L402HttpContextKeys.VerificationResult]!;
+    var result = (VerificationResult)HttpContext.Items[L402HttpContextKeys.VerificationResult]!;
     _logger.LogInformation("Served {Resource} for {Sats} sats ({Hash})",
         result.Resource, result.AmountSats, result.PaymentHash);
     return Ok(new { temp = 72 });
 }
 ```
 
+In minimal APIs, an `HttpContext` handler parameter is injected, so `(HttpContext ctx) => ctx.Items[...]` works there.
+
+## One invoice per buyer: set `IdempotencyKeySelector`
+
+When `IdempotencyKeySelector` is null, the Lightning Enable API deduplicates challenges by the caller's IP address, the resource, and the price, and returns the same challenge until its invoice expires. Behind this middleware the caller is **your server**, not the buyer, so every buyer who requests the same resource at the same price in that window receives the **same invoice**. A Lightning invoice can be paid only once, so after one buyer pays it, the others can't complete payment until it expires.
+
+Set `IdempotencyKeySelector` so each buyer gets their own invoice:
+
+```csharp
+app.UseL402(opts =>
+{
+    // One invoice per unpaid request.
+    opts.IdempotencyKeySelector = _ => Guid.NewGuid().ToString("N");
+});
+```
+
+- A repeated key returns the challenge already minted under it while its invoice is live, so a retry of the same buyer request doesn't mint a second invoice.
+- If you derive the key from a stable buyer identifier (for example, an authenticated user ID), include the resource and price in it. The API rejects a key that's still bound to a live challenge for a different resource or price with `409 idempotency_key_reuse`, which the middleware returns to the buyer as a `502`.
+- Keys can be up to 200 characters. A longer key is rejected with `400`, also returned as a `502`.
+- Each new key mints a new invoice, and every minted challenge counts toward any monthly challenge limit on your plan.
+
 ## Configuration
 
 | Option | Type | Default | Notes |
 |---|---|---|---|
 | `DefaultPriceSats` | `int?` | `null` | Flat price applied when no `[L402]` attribute is present |
-| `PriceSelector` | `Func<HttpContext, ValueTask<int>>?` | `null` | Variable pricing per request; overrides attribute + default |
+| `PriceSelector` | `Func<HttpContext, ValueTask<int?>>?` | `null` | Variable pricing per request; overrides attribute + default. Return `null` to fall through to them |
 | `ResourceSelector` | `Func<HttpContext, string>?` | `HttpContext.Request.Path` | Bound as a macaroon caveat |
 | `DescriptionSelector` | `Func<HttpContext, string?>?` | `null` | Shown to the payer in their wallet |
-| `IdempotencyKeySelector` | `Func<HttpContext, string?>?` | `null` | Sends `X-Idempotency-Key` for retry-safe challenge minting |
+| `IdempotencyKeySelector` | `Func<HttpContext, string?>?` | `null` (buyers share one challenge per resource and price; see above) | Sends `X-Idempotency-Key` on challenge minting. Set it so each buyer gets their own invoice |
 | `EnforceResourceOnVerify` | `bool` | `true` | Sends the resolved resource with verification so the producer API enforces the macaroon's path caveat server-side; set `false` to opt out |
 | `OnInvalidToken` | `Func<HttpContext, VerificationResult, ValueTask>?` | sends `401` | Custom handler — e.g. send a fresh `402` instead. Your handler must write a response or call the next middleware itself |
 
